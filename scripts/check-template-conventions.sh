@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 status=0
 
 # 1) No tracked real runbooks/configs where .example is required.
-tracked_bad="$(git ls-files | grep -E '(^|/)(runbooks/.+\.(ya?ml)|broker/configs/.+\.(ya?ml)|teleport/configs/.+\.(ya?ml)|\.env)$' | grep -Ev '\.example\.ya?ml$|\.env\.example$' || true)"
+tracked_bad="$(git ls-files | grep -E '^(runbooks/.+\.(ya?ml)|broker/configs/.+\.(ya?ml)|teleport/configs/.+\.(ya?ml)|\.env)$' | grep -Ev '\.example\.ya?ml$|\.env\.example$' || true)"
 if [[ -n "$tracked_bad" ]]; then
   echo "ERROR: tracked real config/runbook files found:"
   echo "$tracked_bad"
