@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: broker/go.mod
+          cache-dependency-path: broker/go.sum
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: openclaw-plugin/package-lock.json
+
+      - name: Install plugin dependencies
+        run: npm ci
+        working-directory: openclaw-plugin
+
+      - name: Verify shell scripts syntax
+        run: |
+          bash -n scripts/bootstrap-dev.sh
+          bash -n scripts/copy-examples.sh
+          bash -n scripts/validate-runbooks.sh
+          bash -n scripts/check-template-conventions.sh
+          bash -n scripts/test-copy-examples.sh
+
+      - name: Run broker tests
+        run: go test ./...
+        working-directory: broker
+
+      - name: Run plugin tests and lint
+        run: |
+          npm test
+          npm run lint
+        working-directory: openclaw-plugin
+
+      - name: Run template checks
+        run: |
+          ./scripts/test-copy-examples.sh
+          ./scripts/validate-runbooks.sh
+          ./scripts/check-template-conventions.sh

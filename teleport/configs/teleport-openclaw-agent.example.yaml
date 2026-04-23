@@ -1,0 +1,16 @@
+version: v3
+teleport:
+  nodename: teleclaw-broker
+  auth_token: "REPLACE_WITH_SHORT_LIVED_TOKEN"
+  proxy_server: "your-teleport-proxy.example.com:443"
+  data_dir: /var/lib/teleport
+ssh_service:
+  enabled: false
+app_service:
+  enabled: true
+  apps:
+    - name: openclaw-ui
+      uri: http://127.0.0.1:3000
+      labels:
+        environment: dev
+        owner: platform

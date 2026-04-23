@@ -1,0 +1,13 @@
+version: v2
+auth_server: your-teleport-proxy.example.com:443
+onboarding:
+  join_method: token
+  token: "REPLACE_WITH_SHORT_LIVED_JOIN_TOKEN"
+storage:
+  type: directory
+  path: ./tmp/tbot
+destinations:
+  - type: directory
+    path: ./tmp/tbot-output
+    roles: ["teleclaw-k8s-readonly", "teleclaw-ssh-readonly"]
+    bot_name: teleclaw-broker-bot

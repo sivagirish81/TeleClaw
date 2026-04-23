@@ -1,0 +1,33 @@
+{
+  "name": "@teleclaw/openclaw-plugin",
+  "version": "0.1.0",
+  "description": "TeleClaw plugin for OpenClaw runbook operations via a local broker",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "openclaw",
+    "teleclaw",
+    "teleport",
+    "plugin"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.8"
+  }
+}

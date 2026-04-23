@@ -1,0 +1,28 @@
+id: k8s.release_diagnose
+title: Kubernetes Release Diagnose
+kind: k8s.release
+description: Read-only release diagnostics for rollout health and failure triage.
+required_inputs:
+  - namespace
+  - workload
+optional_inputs:
+  - log_tail_lines
+access:
+  mode: read_only
+  rationale: "Observe rollout state and logs without mutating cluster resources"
+execution:
+  adapter: k8s
+  provider: mock
+  checks:
+    - rollout_status
+    - pod_list
+    - recent_events
+    - logs_tail
+output:
+  format: structured
+  include_logs: true
+redaction:
+  enabled: true
+  patterns:
+    - token
+    - authorization

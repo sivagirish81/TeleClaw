@@ -1,0 +1,28 @@
+id: ssh.host_diagnose
+title: Host Diagnose
+kind: ssh.diagnostics
+description: Read-only host diagnostics through Teleport-authenticated SSH access.
+required_inputs:
+  - host
+optional_inputs:
+  - journal_lines
+access:
+  mode: read_only
+  rationale: "Collect diagnostics without changing host state"
+execution:
+  adapter: ssh
+  checks:
+    - hostname
+    - uptime
+    - disk_usage
+    - memory_usage
+    - recent_journal
+output:
+  format: structured
+  include_logs: true
+redaction:
+  enabled: true
+  patterns:
+    - password
+    - token
+    - authorization
