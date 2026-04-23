@@ -1,0 +1,10 @@
+{
+  "id": "@teleclaw/openclaw-plugin",
+  "name": "TeleClaw OpenClaw Plugin",
+  "description": "Run allowlisted TeleClaw runbooks through the local broker.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
