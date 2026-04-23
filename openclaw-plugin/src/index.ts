@@ -38,16 +38,22 @@ export function register(api: any): void {
   const plugin = createTeleClawPlugin();
 
   api.registerTool({
-    id: "list_runbooks",
+    name: "list_runbooks",
     description: "List allowlisted TeleClaw runbooks from the broker",
-    inputSchema: { type: "object", additionalProperties: false, properties: {} },
-    execute: async () => plugin.tools.list_runbooks()
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+    execute: async () => {
+      const out = await plugin.tools.list_runbooks();
+      return {
+        content: [{ type: "text", text: out.summary }],
+        structuredContent: out.data
+      };
+    }
   });
 
   api.registerTool({
-    id: "run_runbook",
+    name: "run_runbook",
     description: "Execute an allowlisted TeleClaw runbook by ID with typed inputs",
-    inputSchema: {
+    parameters: {
       type: "object",
       additionalProperties: false,
       required: ["runbook_id"],
@@ -56,13 +62,19 @@ export function register(api: any): void {
         input: { type: "object", additionalProperties: { type: "string" } }
       }
     },
-    execute: async (input: unknown) => plugin.tools.run_runbook(input)
+    execute: async (_id: string, input: unknown) => {
+      const out = await plugin.tools.run_runbook(input);
+      return {
+        content: [{ type: "text", text: out.summary }],
+        structuredContent: out.data
+      };
+    }
   });
 
   api.registerTool({
-    id: "get_runbook_status",
+    name: "get_runbook_status",
     description: "Fetch runbook job status from the TeleClaw broker",
-    inputSchema: {
+    parameters: {
       type: "object",
       additionalProperties: false,
       required: ["job_id"],
@@ -70,7 +82,13 @@ export function register(api: any): void {
         job_id: { type: "string", minLength: 1 }
       }
     },
-    execute: async (input: unknown) => plugin.tools.get_runbook_status(input)
+    execute: async (_id: string, input: unknown) => {
+      const out = await plugin.tools.get_runbook_status(input);
+      return {
+        content: [{ type: "text", text: out.summary }],
+        structuredContent: out.data
+      };
+    }
   });
 }
 
