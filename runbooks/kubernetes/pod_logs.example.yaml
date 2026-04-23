@@ -1,0 +1,25 @@
+id: k8s.pod_logs
+title: Kubernetes Pod Logs
+kind: k8s.logs
+description: Read-only pod log retrieval by namespace and selector.
+required_inputs:
+  - namespace
+optional_inputs:
+  - selector
+  - tail_lines
+access:
+  mode: read_only
+  rationale: "Fetch logs only"
+execution:
+  adapter: k8s
+  provider: mock
+  checks:
+    - logs_tail
+output:
+  format: structured
+  include_logs: true
+redaction:
+  enabled: true
+  patterns:
+    - token
+    - authorization

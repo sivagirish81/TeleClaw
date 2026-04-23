@@ -1,0 +1,16 @@
+id: ssh.host_diagnose
+title: Host Diagnose
+kind: ssh.diagnostics
+description: Read-only host diagnostics for troubleshooting.
+required_inputs:
+  - host
+optional_inputs:
+  - journal_lines
+access:
+  mode: read_only
+execution:
+  adapter: ssh
+output:
+  format: structured
+redaction:
+  enabled: true

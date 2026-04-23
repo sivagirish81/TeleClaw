@@ -1,0 +1,14 @@
+kind: role
+version: v7
+metadata:
+  name: teleclaw-ssh-readonly
+spec:
+  allow:
+    node_labels:
+      environment: "*"
+    logins: ["teleclaw-reader"]
+    rules:
+      - resources: ["session"]
+        verbs: ["list", "read"]
+  options:
+    max_session_ttl: 1h

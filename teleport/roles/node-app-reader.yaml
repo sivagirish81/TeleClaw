@@ -1,0 +1,12 @@
+kind: role
+version: v7
+metadata:
+  name: teleclaw-node-app-reader
+spec:
+  allow:
+    app_labels:
+      environment: "*"
+      team: "platform"
+    logins: ["teleclaw-reader"]
+  options:
+    max_session_ttl: 2h

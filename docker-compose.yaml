@@ -1,0 +1,23 @@
+version: "3.9"
+services:
+  broker:
+    image: golang:1.23
+    working_dir: /workspace/broker
+    command: ["go", "run", "./cmd/server"]
+    volumes:
+      - ./:/workspace
+    environment:
+      TELECLAW_BROKER_CONFIG: /workspace/broker/configs/broker.yaml
+    ports:
+      - "8080:8080"
+
+  plugin:
+    image: node:22
+    working_dir: /workspace/openclaw-plugin
+    command: ["npm", "run", "dev"]
+    volumes:
+      - ./:/workspace
+    environment:
+      TELECLAW_BROKER_URL: http://broker:8080
+    depends_on:
+      - broker

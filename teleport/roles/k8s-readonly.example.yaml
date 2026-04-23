@@ -1,0 +1,15 @@
+kind: role
+version: v7
+metadata:
+  name: teleclaw-k8s-readonly
+spec:
+  allow:
+    kubernetes_labels:
+      environment: "*"
+    kubernetes_resources:
+      - kind: "*"
+        namespace: "*"
+        name: "*"
+        verbs: ["get", "list", "watch"]
+  options:
+    max_session_ttl: 1h

@@ -1,0 +1,12 @@
+listen_address: ":8080"
+runbooks_dir: "../runbooks"
+store_path: "../tmp/jobs.json"
+teleport:
+  enabled: false
+  tsh_path: "tsh"
+  kubectl_path: "kubectl"
+  proxy: "your-teleport-proxy.example.com:443"
+  kube_cluster: "your-teleport-kube-cluster"
+  login_ttl: "15m"
+  login_timeout: "30s"
+  command_timeout: "20s"
