@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.23+
+- Go 1.22+
 - Node.js 22+
 - npm 10+
 
