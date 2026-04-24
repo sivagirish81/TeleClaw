@@ -38,6 +38,8 @@ openclaw-plugin/*.yml
 tmp/
 
 # Build artifacts
+openclaw-plugin/node_modules/
+openclaw-plugin/dist/
 node_modules/
 dist/
 coverage/
@@ -50,6 +52,8 @@ broker/bin/
 .DS_Store
 .idea/
 .vscode/
+.cursorignore
+.cursorindexingignore
 
 # Local sensitive files
 *.pem
