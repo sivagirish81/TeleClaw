@@ -167,7 +167,10 @@ func (a *TeleportAdapter) loginToTeleport(namespace string, logs *[]string) erro
 	if strings.TrimSpace(a.cfg.Proxy) != "" {
 		args = append(args, "--proxy="+strings.TrimSpace(a.cfg.Proxy))
 	}
-	args = append(args, "kube", "login", strings.TrimSpace(a.cfg.KubeCluster), "--ttl", strings.TrimSpace(a.cfg.LoginTTL))
+	args = append(args, "kube", "login", strings.TrimSpace(a.cfg.KubeCluster))
+	if ttl := strings.TrimSpace(a.cfg.LoginTTL); ttl != "" {
+		args = append(args, "--ttl", ttl)
+	}
 
 	stdout, stderr, err := a.runner.Run(ctx, a.cfg.TshPath, args)
 	*logs = append(*logs, fmt.Sprintf("teleport login: %s %s", a.cfg.TshPath, strings.Join(args, " ")))
