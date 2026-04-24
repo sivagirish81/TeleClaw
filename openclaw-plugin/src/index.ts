@@ -192,7 +192,6 @@ function registerCommandCompat(
   api: any,
   names: string[],
   description: string,
-  parameters: any,
   execute: (ctx: CommandContext) => Promise<CommandResult>
 ): void {
   if (typeof api?.registerCommand !== "function") {
@@ -217,7 +216,6 @@ function registerCommandCompat(
       name,
       command: name,
       description,
-      parameters,
       async execute(...args: unknown[]) {
         return invoke(...args);
       },
@@ -230,10 +228,10 @@ function registerCommandCompat(
     };
 
     const attempts: Array<() => void> = [
-      () => api.registerCommand(commandDef),
-      () => api.registerCommand(name, commandDef),
       () => api.registerCommand(name, description, (...args: unknown[]) => invoke(...args)),
-      () => api.registerCommand(name, (...args: unknown[]) => invoke(...args))
+      () => api.registerCommand(name, (...args: unknown[]) => invoke(...args)),
+      () => api.registerCommand(commandDef),
+      () => api.registerCommand(name, commandDef)
     ];
 
     let registered = false;
@@ -280,20 +278,6 @@ function registerRuntime(api: any): void {
   const client = new BrokerClient({
     baseUrl: brokerUrl,
     timeoutMs: fallback.timeoutMs
-  });
-  const NoArgs = Type.Object({});
-  const RunArgs = Type.Object({
-    runbook_id: Type.String({ minLength: 1 }),
-    namespace: Type.Optional(Type.String()),
-    workload: Type.Optional(Type.String()),
-    log_tail_lines: Type.Optional(Type.String()),
-    selector: Type.Optional(Type.String()),
-    tail_lines: Type.Optional(Type.String()),
-    host: Type.Optional(Type.String()),
-    journal_lines: Type.Optional(Type.String())
-  });
-  const StatusArgs = Type.Object({
-    job_id: Type.String({ minLength: 1 })
   });
 
   console.error("[teleclaw] runtime register called", JSON.stringify({ brokerUrl }));
@@ -383,7 +367,6 @@ function registerRuntime(api: any): void {
     api,
     ["teleclaw-ping", "teleclaw_ping"],
     "Ping TeleClaw plugin connectivity",
-    NoArgs,
     async () => ({ text: "pong from teleclaw" })
   );
 
@@ -391,7 +374,6 @@ function registerRuntime(api: any): void {
     api,
     ["teleclaw-runbooks", "teleclaw_runbooks"],
     "List allowlisted TeleClaw runbooks",
-    NoArgs,
     async () => {
       const out = await listRunbooksTool(client);
       return { text: `${out.summary}\n\n${formatJson(out.data)}`, data: out.data };
@@ -402,7 +384,6 @@ function registerRuntime(api: any): void {
     api,
     ["teleclaw-run", "teleclaw_run"],
     "Run a TeleClaw runbook",
-    RunArgs,
     async (ctx) => {
       const allowedRunKeys = new Set([
         "runbook_id",
@@ -450,7 +431,6 @@ function registerRuntime(api: any): void {
     api,
     ["teleclaw-status", "teleclaw_status"],
     "Get TeleClaw job status",
-    StatusArgs,
     async (ctx) => {
       const allowedStatusKeys = new Set(["job_id", "id"]);
       let kv = parseKeyValueArgs(ctx, allowedStatusKeys);
