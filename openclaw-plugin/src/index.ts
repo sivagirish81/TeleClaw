@@ -39,7 +39,7 @@ function formatJSON(value: unknown): string {
 
 function ensureRegistrationAPI(api: any): asserts api is {
   registerTool: (tool: any) => void;
-  registerCommand: (command: any) => void;
+  registerCommand: (...args: any[]) => void;
   pluginConfig?: { brokerUrl?: string };
 } {
   if (typeof api?.registerTool !== "function") {
@@ -76,8 +76,23 @@ function registerRuntime(api: any): void {
   };
 
   const registerCommand = (commandDef: any) => {
-    api.registerCommand(commandDef);
-    registeredCommands.push(commandDef.name);
+    try {
+      api.registerCommand(commandDef);
+      registeredCommands.push(commandDef.name);
+      return;
+    } catch (err) {
+      console.error(`[teleclaw] registerCommand(object) failed for ${commandDef.name}`, err);
+    }
+
+    try {
+      api.registerCommand(commandDef.name, commandDef);
+      registeredCommands.push(commandDef.name);
+      return;
+    } catch (err) {
+      console.error(`[teleclaw] registerCommand(name, object) failed for ${commandDef.name}`, err);
+    }
+
+    throw new Error(`[teleclaw] unable to register command ${commandDef.name}`);
   };
 
   registerTool({
