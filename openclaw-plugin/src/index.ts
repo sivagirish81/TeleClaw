@@ -252,34 +252,6 @@ function registerToolCompat(api: any, toolDef: any): void {
   }
 }
 
-function normalizeCommandParams(args: unknown[]): Record<string, unknown> {
-  if (args.length === 0) {
-    return {};
-  }
-  const first = args[0];
-  if (!first || typeof first !== "object") {
-    return {};
-  }
-  const obj = first as Record<string, unknown>;
-  if (obj.params && typeof obj.params === "object" && !Array.isArray(obj.params)) {
-    return obj.params as Record<string, unknown>;
-  }
-  return obj;
-}
-
-function registerParameterizedCommand(api: any, commandDef: any): void {
-  if (typeof api?.registerCommand !== "function") {
-    console.error(`[teleclaw] registerCommand unavailable; skipping command ${commandDef?.id ?? "unknown"}`);
-    return;
-  }
-  try {
-    api.registerCommand(commandDef);
-    console.error(`[teleclaw] parameterized command registered: ${commandDef.id}`);
-  } catch (error) {
-    console.error(`[teleclaw] failed to register parameterized command ${commandDef.id}`, error);
-  }
-}
-
 function registerRuntime(api: any): void {
   if ((globalThis as any).__teleclawRuntimeRegistered) {
     console.error("[teleclaw] runtime already registered; skipping duplicate hook");
@@ -293,6 +265,7 @@ function registerRuntime(api: any): void {
     baseUrl: brokerUrl,
     timeoutMs: fallback.timeoutMs
   });
+  let lastJobId: string | undefined;
 
   console.error("[teleclaw] runtime register called", JSON.stringify({ brokerUrl }));
 
@@ -394,110 +367,49 @@ function registerRuntime(api: any): void {
     }
   );
 
-  const runCommandNames = ["teleclaw-run", "teleclaw_run"];
-  for (const commandName of runCommandNames) {
-    registerParameterizedCommand(api, {
-      id: commandName,
-      name: commandName,
-      command: commandName,
-      description: "Run a TeleClaw runbook",
-      parameters: Type.Object({
-        runbook_id: Type.String({ minLength: 1 }),
-        namespace: Type.Optional(Type.String()),
-        workload: Type.Optional(Type.String()),
-        log_tail_lines: Type.Optional(Type.String()),
-        selector: Type.Optional(Type.String()),
-        tail_lines: Type.Optional(Type.String()),
-        host: Type.Optional(Type.String()),
-        journal_lines: Type.Optional(Type.String())
-      }),
-      async execute(...args: unknown[]) {
-        const params = normalizeCommandParams(args);
-        const allowedRunKeys = new Set([
-          "runbook_id",
-          "runbook",
-          "id",
-          "namespace",
-          "workload",
-          "log_tail_lines",
-          "selector",
-          "tail_lines",
-          "host",
-          "journal_lines"
-        ]);
-        const ctx = coerceCommandContext(args);
-        let kv = parseKeyValueArgs(ctx, allowedRunKeys);
-        const tail = extractTailFromContext(ctx, [commandName]);
-        if (tail) {
-          kv = { ...kv, ...parseArgString(tail, allowedRunKeys) };
+  registerCommandCompat(
+    api,
+    ["teleclaw-run", "teleclaw_run", "teleclaw-diagnose", "teleclaw_diagnose"],
+    "Run the TeleClaw Kubernetes demo diagnose flow",
+    async () => {
+      const payload = {
+        runbook_id: "k8s.release_diagnose",
+        input: {
+          namespace: "mock-app",
+          workload: "mock-web",
+          log_tail_lines: "100"
         }
-
-        // Prefer explicit parsed args from command body/context, fallback to structured params.
-        const runbookId =
-          kv.runbook_id ??
-          kv.runbook ??
-          kv.id ??
-          (typeof params.runbook_id === "string" ? params.runbook_id : "");
-        if (!runbookId) {
-          return toCommandResult({
-            text:
-              "Missing runbook_id. Example: /teleclaw-run runbook_id=k8s.release_diagnose namespace=mock-app workload=mock-web log_tail_lines=100"
-          });
-        }
-
-        delete kv.runbook_id;
-        delete kv.runbook;
-        delete kv.id;
-
-        const input = Object.fromEntries(
-          Object.entries({
-            namespace: kv.namespace ?? params.namespace,
-            workload: kv.workload ?? params.workload,
-            log_tail_lines: kv.log_tail_lines ?? params.log_tail_lines,
-            selector: kv.selector ?? params.selector,
-            tail_lines: kv.tail_lines ?? params.tail_lines,
-            host: kv.host ?? params.host,
-            journal_lines: kv.journal_lines ?? params.journal_lines
-          }).filter(([, value]) => value != null && String(value).trim() !== "")
-        ) as Record<string, string>;
-
-        const payload = { runbook_id: runbookId, input };
-        console.error("[teleclaw] calling broker", JSON.stringify({ brokerUrl, payload }));
-        const out = await runRunbookTool(client, payload);
-        return toCommandResult({
-          text: `${out.summary}\n\n${formatJson(out.data)}`,
-          data: out.data
-        });
+      };
+      console.error("[teleclaw] calling broker", JSON.stringify({ brokerUrl, payload }));
+      const out = await runRunbookTool(client, payload);
+      const maybeJobId = (out.data as Record<string, unknown> | undefined)?.job_id;
+      if (typeof maybeJobId === "string" && maybeJobId.trim() !== "") {
+        lastJobId = maybeJobId;
       }
-    });
-  }
+      return {
+        text: `${out.summary}\n\n${formatJson(out.data)}`,
+        data: out.data
+      };
+    }
+  );
 
-  const statusCommandNames = ["teleclaw-status", "teleclaw_status"];
-  for (const commandName of statusCommandNames) {
-    registerParameterizedCommand(api, {
-      id: commandName,
-      name: commandName,
-      command: commandName,
-      description: "Get TeleClaw job status",
-      parameters: Type.Object({
-        job_id: Type.String({ minLength: 1 })
-      }),
-      async execute(...args: unknown[]) {
-        const params = normalizeCommandParams(args);
-        const jobId = typeof params.job_id === "string" ? params.job_id : "";
-        if (!jobId) {
-          return toCommandResult({
-            text: "Missing job_id. Example: /teleclaw-status job_id=job-abc123"
-          });
-        }
-        const out = await getRunbookStatusTool(client, { job_id: jobId });
-        return toCommandResult({
-          text: `${out.summary}\n\n${formatJson(out.data)}`,
-          data: out.data
-        });
+  registerCommandCompat(
+    api,
+    ["teleclaw-status", "teleclaw_status"],
+    "Get status for the latest TeleClaw demo run",
+    async () => {
+      if (!lastJobId) {
+        return {
+          text: "No demo run found yet. Run /teleclaw-run first."
+        };
       }
-    });
-  }
+      const out = await getRunbookStatusTool(client, { job_id: lastJobId });
+      return {
+        text: `${out.summary}\n\n${formatJson(out.data)}`,
+        data: out.data
+      };
+    }
+  );
 
   console.error("[teleclaw] tools and commands registered");
 }
