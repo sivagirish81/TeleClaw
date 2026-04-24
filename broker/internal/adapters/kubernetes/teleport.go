@@ -86,36 +86,33 @@ func (a *TeleportAdapter) runReleaseDiagnose(namespace string, input map[string]
 		return nil, logs, err
 	}
 
-	rolloutOut, err := a.kubectl("rollout_status", namespace, logsPtr(&logs), "rollout", "status", "deployment/"+workload, "-n", namespace, "--watch=false")
-	if err != nil {
-		return nil, logs, err
+	rolloutOut, rolloutErr := a.kubectl("rollout_status", namespace, logsPtr(&logs), "rollout", "status", "deployment/"+workload, "-n", namespace, "--watch=false")
+	podsOut, podsErr := a.kubectl("pod_list", namespace, logsPtr(&logs), "get", "pods", "-n", namespace, "-l", "app="+workload, "-o", "wide")
+	eventsOut, eventsErr := a.kubectl("recent_events", namespace, logsPtr(&logs), "get", "events", "-n", namespace, "--sort-by=.lastTimestamp", "--field-selector", "type!=Normal")
+	logsOut, logsErr := a.kubectl("logs_tail", namespace, logsPtr(&logs), "logs", "deployment/"+workload, "-n", namespace, "--tail", strconv.Itoa(tail))
+
+	checks := []map[string]any{
+		buildCheck("rollout_status", rolloutOut, rolloutErr),
+		buildCheck("pod_list", podsOut, podsErr),
+		buildCheck("recent_events", eventsOut, eventsErr),
+		buildCheck("logs_tail", logsOut, logsErr),
 	}
 
-	podsOut, err := a.kubectl("pod_list", namespace, logsPtr(&logs), "get", "pods", "-n", namespace, "-l", "app="+workload, "-o", "wide")
-	if err != nil {
-		return nil, logs, err
-	}
-
-	eventsOut, err := a.kubectl("recent_events", namespace, logsPtr(&logs), "get", "events", "-n", namespace, "--sort-by=.lastTimestamp", "--field-selector", "type!=Normal")
-	if err != nil {
-		return nil, logs, err
-	}
-
-	logsOut, err := a.kubectl("logs_tail", namespace, logsPtr(&logs), "logs", "deployment/"+workload, "-n", namespace, "--tail", strconv.Itoa(tail))
-	if err != nil {
-		return nil, logs, err
+	overallStatus := "ok"
+	for _, check := range checks {
+		status, _ := check["status"].(string)
+		if status != "ok" {
+			overallStatus = "degraded"
+			break
+		}
 	}
 
 	result := map[string]any{
-		"namespace": namespace,
-		"workload":  workload,
-		"provider":  "teleport",
-		"checks": []map[string]any{
-			{"name": "rollout_status", "status": "ok", "value": truncate(rolloutOut, 600)},
-			{"name": "pod_list", "status": "ok", "value": truncate(podsOut, 600)},
-			{"name": "recent_events", "status": "ok", "value": truncate(eventsOut, 600)},
-			{"name": "logs_tail", "status": "ok", "value": truncate(logsOut, 600)},
-		},
+		"namespace":      namespace,
+		"workload":       workload,
+		"provider":       "teleport",
+		"overall_status": overallStatus,
+		"checks":         checks,
 	}
 	return result, logs, nil
 }
@@ -225,4 +222,19 @@ func truncate(text string, max int) string {
 
 func logsPtr(logs *[]string) *[]string {
 	return logs
+}
+
+func buildCheck(name, value string, err error) map[string]any {
+	if err != nil {
+		return map[string]any{
+			"name":   name,
+			"status": "failed",
+			"value":  truncate(err.Error(), 600),
+		}
+	}
+	return map[string]any{
+		"name":   name,
+		"status": "ok",
+		"value":  truncate(value, 600),
+	}
 }
