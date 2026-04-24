@@ -17,6 +17,7 @@ type CommandContext = {
   args?: string[];
   input?: string;
   raw?: string;
+  commandBody?: string;
   params?: Record<string, unknown>;
 };
 
@@ -70,6 +71,9 @@ function coerceCommandContext(args: unknown[]): CommandContext {
     if (typeof obj.raw === "string") {
       ctx.raw = obj.raw;
     }
+    if (typeof obj.commandBody === "string") {
+      ctx.commandBody = obj.commandBody;
+    }
     if (obj.params && typeof obj.params === "object" && !Array.isArray(obj.params)) {
       ctx.params = obj.params as Record<string, unknown>;
     }
@@ -96,6 +100,9 @@ function parseKeyValueArgs(ctx: CommandContext): Record<string, string> {
       if (value == null) {
         continue;
       }
+      if (key === "commandBody" || key === "command" || key === "name") {
+        continue;
+      }
       out[key] = String(value);
     }
   }
@@ -108,6 +115,35 @@ function parseKeyValueArgs(ctx: CommandContext): Record<string, string> {
     out[k.trim()] = rest.join("=").trim();
   }
   return out;
+}
+
+function parseArgString(argString: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const token of argString.split(/\s+/).filter(Boolean)) {
+    const [k, ...rest] = token.split("=");
+    if (!k || rest.length === 0) {
+      continue;
+    }
+    out[k.trim()] = rest.join("=").trim();
+  }
+  return out;
+}
+
+function extractCommandTail(commandBody: string, commandName: string): string | null {
+  const body = commandBody.trim();
+  const slashPrefix = `/${commandName}`;
+  const barePrefix = commandName;
+
+  if (body === slashPrefix || body === barePrefix) {
+    return "";
+  }
+  if (body.startsWith(`${slashPrefix} `)) {
+    return body.slice(slashPrefix.length).trim();
+  }
+  if (body.startsWith(`${barePrefix} `)) {
+    return body.slice(barePrefix.length).trim();
+  }
+  return null;
 }
 
 function registerCommandCompat(
@@ -252,8 +288,20 @@ function registerRuntime(api: any): void {
     "teleclaw-run",
     "Run a TeleClaw runbook. Example: /teleclaw-run runbook_id=k8s.release_diagnose namespace=mock-app workload=mock-web log_tail_lines=100",
     async (ctx?: CommandContext) => {
-      console.error("[teleclaw] command invoked: teleclaw-run", ctx?.raw ?? ctx?.input ?? "");
-      const kv = parseKeyValueArgs(ctx ?? {});
+      console.error(
+        "[teleclaw] command invoked: teleclaw-run",
+        ctx?.commandBody ?? ctx?.raw ?? ctx?.input ?? ""
+      );
+
+      let kv = parseKeyValueArgs(ctx ?? {});
+      if (ctx?.commandBody) {
+        const tail = extractCommandTail(ctx.commandBody, "teleclaw-run");
+        if (tail === null) {
+          return { text: "Command body mismatch. Expected /teleclaw-run <args...>" };
+        }
+        kv = { ...kv, ...parseArgString(tail) };
+      }
+
       console.error("[teleclaw] parsed args", JSON.stringify(kv));
       const runbookId = kv.runbook_id ?? kv.runbook ?? kv.id;
 
