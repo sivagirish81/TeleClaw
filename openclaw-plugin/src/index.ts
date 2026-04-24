@@ -174,8 +174,9 @@ function registerRuntime(api: any): void {
   console.error("[teleclaw] runtime register called");
 
   const fallback = loadConfig();
+  const brokerUrl = api?.pluginConfig?.brokerUrl ?? fallback.brokerUrl;
   const client = new BrokerClient({
-    baseUrl: api?.pluginConfig?.brokerUrl ?? fallback.brokerUrl,
+    baseUrl: brokerUrl,
     timeoutMs: fallback.timeoutMs
   });
 
@@ -251,7 +252,9 @@ function registerRuntime(api: any): void {
     "teleclaw-run",
     "Run a TeleClaw runbook. Example: /teleclaw-run runbook_id=k8s.release_diagnose namespace=mock-app workload=mock-web log_tail_lines=100",
     async (ctx?: CommandContext) => {
+      console.error("[teleclaw] command invoked: teleclaw-run", ctx?.raw ?? ctx?.input ?? "");
       const kv = parseKeyValueArgs(ctx ?? {});
+      console.error("[teleclaw] parsed args", JSON.stringify(kv));
       const runbookId = kv.runbook_id ?? kv.runbook ?? kv.id;
 
       if (!runbookId) {
@@ -265,10 +268,14 @@ function registerRuntime(api: any): void {
       delete kv.runbook;
       delete kv.id;
 
-      const out = await runRunbookTool(client, {
+      const payload = {
         runbook_id: runbookId,
         input: kv
-      });
+      };
+      console.error("[teleclaw] calling broker", brokerUrl, JSON.stringify(payload));
+      const out = await runRunbookTool(client, payload);
+      console.error("[teleclaw] broker response", JSON.stringify(out.data));
+      console.error("[teleclaw] command returning to chat");
 
       return { text: `${out.summary}\n\n${formatJson(out.data)}`, data: out.data };
     }
