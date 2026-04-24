@@ -51,12 +51,6 @@ function ensureRegistrationAPI(api: any): asserts api is {
 }
 
 function registerRuntime(api: any): void {
-  if ((globalThis as any).__teleclawRuntimeRegistered) {
-    console.error("[teleclaw] runtime already registered; skipping duplicate hook");
-    return;
-  }
-  (globalThis as any).__teleclawRuntimeRegistered = true;
-
   ensureRegistrationAPI(api);
 
   const fallback = loadConfig();
@@ -145,7 +139,21 @@ function registerRuntime(api: any): void {
     }
   });
 
-  registerCommand({
+  const registerCommandPair = (primary: string, alias: string, build: () => any) => {
+    const a = build();
+    a.id = primary;
+    a.name = primary;
+    a.command = primary;
+    registerCommand(a);
+
+    const b = build();
+    b.id = alias;
+    b.name = alias;
+    b.command = alias;
+    registerCommand(b);
+  };
+
+  registerCommandPair("teleclaw-ping", "teleclaw_ping", () => ({
     id: "teleclaw-ping",
     name: "teleclaw-ping",
     command: "teleclaw-ping",
@@ -155,9 +163,9 @@ function registerRuntime(api: any): void {
       console.error("[teleclaw] command invoked: teleclaw-ping");
       return toCommandResult({ text: "pong from teleclaw" });
     }
-  });
+  }));
 
-  registerCommand({
+  registerCommandPair("teleclaw-runbooks", "teleclaw_runbooks", () => ({
     id: "teleclaw-runbooks",
     name: "teleclaw-runbooks",
     command: "teleclaw-runbooks",
@@ -168,9 +176,9 @@ function registerRuntime(api: any): void {
       const out = await listRunbooksTool(client);
       return toCommandResult({ text: `${out.summary}\n\n${formatJSON(out.data)}`, data: out.data });
     }
-  });
+  }));
 
-  registerCommand({
+  registerCommandPair("teleclaw-run", "teleclaw_run", () => ({
     id: "teleclaw-run",
     name: "teleclaw-run",
     command: "teleclaw-run",
@@ -193,9 +201,9 @@ function registerRuntime(api: any): void {
       }
       return toCommandResult({ text: `${out.summary}\n\n${formatJSON(out.data)}`, data: out.data });
     }
-  });
+  }));
 
-  registerCommand({
+  registerCommandPair("teleclaw-status", "teleclaw_status", () => ({
     id: "teleclaw-status",
     name: "teleclaw-status",
     command: "teleclaw-status",
@@ -209,7 +217,7 @@ function registerRuntime(api: any): void {
       const out = await getRunbookStatusTool(client, { job_id: lastJobID });
       return toCommandResult({ text: `${out.summary}\n\n${formatJSON(out.data)}`, data: out.data });
     }
-  });
+  }));
 
   console.error(
     "[teleclaw] runtime registered",
