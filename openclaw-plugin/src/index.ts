@@ -51,6 +51,12 @@ function ensureRegistrationAPI(api: any): asserts api is {
 }
 
 function registerRuntime(api: any): void {
+  if ((globalThis as any).__teleclawRuntimeRegistered) {
+    console.error("[teleclaw] runtime already registered; skipping duplicate hook");
+    return;
+  }
+  (globalThis as any).__teleclawRuntimeRegistered = true;
+
   ensureRegistrationAPI(api);
 
   const fallback = loadConfig();
@@ -65,8 +71,12 @@ function registerRuntime(api: any): void {
   const registeredCommands: string[] = [];
 
   const registerTool = (toolDef: any) => {
-    api.registerTool(toolDef);
-    registeredTools.push(toolDef.name);
+    try {
+      api.registerTool(toolDef);
+      registeredTools.push(toolDef.name);
+    } catch (err) {
+      console.error(`[teleclaw] registerTool failed for ${toolDef.name}`, err);
+    }
   };
 
   const registerCommand = (commandDef: any) => {
@@ -86,7 +96,7 @@ function registerRuntime(api: any): void {
       console.error(`[teleclaw] registerCommand(name, object) failed for ${commandDef.name}`, err);
     }
 
-    throw new Error(`[teleclaw] unable to register command ${commandDef.name}`);
+    console.error(`[teleclaw] unable to register command ${commandDef.name}`);
   };
 
   registerTool({
@@ -135,6 +145,47 @@ function registerRuntime(api: any): void {
     }),
     async execute(_id: string, params: { job_id: string }) {
       console.error("[teleclaw] tool invoked: teleclaw_get_runbook_status", JSON.stringify(params));
+      return toToolResult(await getRunbookStatusTool(client, params));
+    }
+  });
+
+  // Compatibility aliases so tool calls from older prompts/config still work.
+  registerTool({
+    name: "list_runbooks",
+    description: "Alias for teleclaw_list_runbooks",
+    parameters: Type.Object({}),
+    async execute(_id: string, _params: {}) {
+      console.error("[teleclaw] tool invoked: list_runbooks");
+      return toToolResult(await listRunbooksTool(client));
+    }
+  });
+
+  registerTool({
+    name: "run_runbook",
+    description: "Alias for teleclaw_run_runbook",
+    parameters: Type.Object({
+      runbook_id: Type.String({ minLength: 1 }),
+      input: Type.Optional(Type.Record(Type.String(), Type.String()))
+    }),
+    async execute(_id: string, params: { runbook_id: string; input?: Record<string, string> }) {
+      console.error("[teleclaw] tool invoked: run_runbook", JSON.stringify(params));
+      const out = await runRunbookTool(client, params);
+      const maybeJobID = (out.data as Record<string, unknown> | undefined)?.job_id;
+      if (typeof maybeJobID === "string" && maybeJobID.trim() !== "") {
+        lastJobID = maybeJobID;
+      }
+      return toToolResult(out);
+    }
+  });
+
+  registerTool({
+    name: "get_runbook_status",
+    description: "Alias for teleclaw_get_runbook_status",
+    parameters: Type.Object({
+      job_id: Type.String({ minLength: 1 })
+    }),
+    async execute(_id: string, params: { job_id: string }) {
+      console.error("[teleclaw] tool invoked: get_runbook_status", JSON.stringify(params));
       return toToolResult(await getRunbookStatusTool(client, params));
     }
   });
