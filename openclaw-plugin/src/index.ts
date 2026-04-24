@@ -17,6 +17,7 @@ type CommandContext = {
   args?: string[];
   input?: string;
   raw?: string;
+  params?: Record<string, unknown>;
 };
 
 function toToolResult(out: ToolResponse) {
@@ -30,6 +31,56 @@ function formatJson(data: unknown): string {
   return JSON.stringify(data, null, 2);
 }
 
+function toCommandTextResult(text: string, data?: unknown) {
+  return {
+    text,
+    message: text,
+    content: [{ type: "text", text }],
+    structuredContent: data
+  };
+}
+
+function coerceCommandContext(args: unknown[]): CommandContext {
+  const ctx: CommandContext = {};
+
+  for (const arg of args) {
+    if (!arg) {
+      continue;
+    }
+
+    if (typeof arg === "string") {
+      ctx.raw = [ctx.raw, arg].filter(Boolean).join(" ");
+      continue;
+    }
+
+    if (typeof arg !== "object") {
+      continue;
+    }
+
+    const obj = arg as Record<string, unknown>;
+    if (Array.isArray(obj.argv)) {
+      ctx.argv = obj.argv.filter((x): x is string => typeof x === "string");
+    }
+    if (Array.isArray(obj.args)) {
+      ctx.args = obj.args.filter((x): x is string => typeof x === "string");
+    }
+    if (typeof obj.input === "string") {
+      ctx.input = obj.input;
+    }
+    if (typeof obj.raw === "string") {
+      ctx.raw = obj.raw;
+    }
+    if (obj.params && typeof obj.params === "object" && !Array.isArray(obj.params)) {
+      ctx.params = obj.params as Record<string, unknown>;
+    }
+    if (!ctx.params && !Array.isArray(obj) && typeof obj === "object") {
+      ctx.params = obj;
+    }
+  }
+
+  return ctx;
+}
+
 function parseKeyValueArgs(ctx: CommandContext): Record<string, string> {
   const tokens = [
     ...(Array.isArray(ctx.argv) ? ctx.argv : []),
@@ -39,6 +90,16 @@ function parseKeyValueArgs(ctx: CommandContext): Record<string, string> {
   ].filter(Boolean);
 
   const out: Record<string, string> = {};
+
+  if (ctx.params) {
+    for (const [key, value] of Object.entries(ctx.params)) {
+      if (value == null) {
+        continue;
+      }
+      out[key] = String(value);
+    }
+  }
+
   for (const token of tokens) {
     const [k, ...rest] = token.split("=");
     if (!k || rest.length === 0) {
@@ -53,12 +114,19 @@ function registerCommandCompat(
   api: any,
   name: string,
   description: string,
-  execute: (ctx?: CommandContext) => Promise<{ content: string }> | { content: string }
+  execute: (ctx?: CommandContext) => Promise<{ text: string; data?: unknown }> | { text: string; data?: unknown }
 ): void {
   if (typeof api?.registerCommand !== "function") {
     console.error(`[teleclaw] registerCommand unavailable; skipping command ${name}`);
     return;
   }
+
+  const invoke = async (...args: unknown[]) => {
+    const ctx = coerceCommandContext(args);
+    console.error(`[teleclaw] command invoked: ${name}`, JSON.stringify(ctx));
+    const out = await execute(ctx);
+    return toCommandTextResult(out.text, out.data);
+  };
 
   const commandDef = {
     id: name,
@@ -66,21 +134,22 @@ function registerCommandCompat(
     command: name,
     description,
     parameters: Type.Object({}),
-    async execute(ctx?: CommandContext) {
-      return execute(ctx);
+    async execute(...args: unknown[]) {
+      return invoke(...args);
     },
-    async run(ctx?: CommandContext) {
-      return execute(ctx);
+    async run(...args: unknown[]) {
+      return invoke(...args);
     },
-    async handler(ctx?: CommandContext) {
-      return execute(ctx);
+    async handler(...args: unknown[]) {
+      return invoke(...args);
     }
   };
 
   const attempts: Array<() => void> = [
     () => api.registerCommand(commandDef),
     () => api.registerCommand(name, commandDef),
-    () => api.registerCommand(name, async (ctx: CommandContext) => execute(ctx))
+    () => api.registerCommand(name, description, (...args: unknown[]) => invoke(...args)),
+    () => api.registerCommand(name, (...args: unknown[]) => invoke(...args))
   ];
 
   for (const attempt of attempts) {
@@ -97,6 +166,11 @@ function registerCommandCompat(
 }
 
 function registerRuntime(api: any): void {
+  if ((globalThis as any).__teleclawRuntimeRegistered) {
+    console.error("[teleclaw] runtime already registered; skipping duplicate hook");
+    return;
+  }
+  (globalThis as any).__teleclawRuntimeRegistered = true;
   console.error("[teleclaw] runtime register called");
 
   const fallback = loadConfig();
@@ -159,7 +233,7 @@ function registerRuntime(api: any): void {
     api,
     "teleclaw-ping",
     "Ping TeleClaw plugin connectivity",
-    async () => ({ content: "pong from teleclaw" })
+    async () => ({ text: "pong from teleclaw" })
   );
 
   registerCommandCompat(
@@ -168,7 +242,7 @@ function registerRuntime(api: any): void {
     "List allowlisted TeleClaw runbooks",
     async () => {
       const out = await listRunbooksTool(client);
-      return { content: `${out.summary}\n\n${formatJson(out.data)}` };
+      return { text: `${out.summary}\n\n${formatJson(out.data)}`, data: out.data };
     }
   );
 
@@ -182,7 +256,7 @@ function registerRuntime(api: any): void {
 
       if (!runbookId) {
         return {
-          content:
+          text:
             "Missing runbook_id. Example: /teleclaw-run runbook_id=k8s.release_diagnose namespace=mock-app workload=mock-web log_tail_lines=100"
         };
       }
@@ -196,7 +270,7 @@ function registerRuntime(api: any): void {
         input: kv
       });
 
-      return { content: `${out.summary}\n\n${formatJson(out.data)}` };
+      return { text: `${out.summary}\n\n${formatJson(out.data)}`, data: out.data };
     }
   );
 
@@ -210,12 +284,12 @@ function registerRuntime(api: any): void {
 
       if (!jobId) {
         return {
-          content: "Missing job_id. Example: /teleclaw-status job_id=job-abc123"
+          text: "Missing job_id. Example: /teleclaw-status job_id=job-abc123"
         };
       }
 
       const out = await getRunbookStatusTool(client, { job_id: jobId });
-      return { content: `${out.summary}\n\n${formatJson(out.data)}` };
+      return { text: `${out.summary}\n\n${formatJson(out.data)}`, data: out.data };
     }
   );
 
