@@ -29,10 +29,11 @@ function getClient(ctx: any) {
 
 export function register(api: any): void {
   console.error("[teleclaw] register called", {
-    hasRegisterTool: typeof api?.registerTool === "function"
+    hasRegisterTool: typeof api?.registerTool === "function",
+    apiKeys: Object.keys(api || {}).sort()
   });
 
-  api.registerTool({
+  const r1 = api.registerTool({
     name: "teleclaw_list_runbooks",
     description: "List allowlisted TeleClaw runbooks from the broker",
     parameters: { type: "object", additionalProperties: false, properties: {} },
@@ -42,9 +43,9 @@ export function register(api: any): void {
       return toToolResult(await listRunbooksTool(client));
     }
   });
-  console.error("[teleclaw] registered tool teleclaw_list_runbooks");
+  console.error("[teleclaw] registered tool teleclaw_list_runbooks ->", r1);
 
-  api.registerTool({
+  const r2 = api.registerTool({
     name: "teleclaw_run_runbook",
     description: "Execute an allowlisted TeleClaw runbook by ID with typed inputs",
     parameters: {
@@ -62,9 +63,9 @@ export function register(api: any): void {
       return toToolResult(await runRunbookTool(client, input));
     }
   });
-  console.error("[teleclaw] registered tool teleclaw_run_runbook");
+  console.error("[teleclaw] registered tool teleclaw_run_runbook ->", r2);
 
-  api.registerTool({
+  const r3 = api.registerTool({
     name: "teleclaw_get_runbook_status",
     description: "Fetch runbook job status from the TeleClaw broker",
     parameters: {
@@ -81,7 +82,7 @@ export function register(api: any): void {
       return toToolResult(await getRunbookStatusTool(client, input));
     }
   });
-  console.error("[teleclaw] registered tool teleclaw_get_runbook_status");
+  console.error("[teleclaw] registered tool teleclaw_get_runbook_status ->", r3);
 }
 
 export const activate = register;
