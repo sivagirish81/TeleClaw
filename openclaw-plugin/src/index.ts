@@ -89,7 +89,7 @@ function coerceCommandContext(args: unknown[]): CommandContext {
   return ctx;
 }
 
-function parseKeyValueArgs(ctx: CommandContext): Record<string, string> {
+function parseKeyValueArgs(ctx: CommandContext, allowedKeys?: Set<string>): Record<string, string> {
   const tokens = [
     ...(Array.isArray(ctx.argv) ? ctx.argv : []),
     ...(Array.isArray(ctx.args) ? ctx.args : []),
@@ -104,7 +104,10 @@ function parseKeyValueArgs(ctx: CommandContext): Record<string, string> {
       if (value == null) {
         continue;
       }
-      if (key === "commandBody" || key === "command" || key === "name") {
+      if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+        continue;
+      }
+      if (allowedKeys && !allowedKeys.has(key)) {
         continue;
       }
       out[key] = String(value);
@@ -116,19 +119,27 @@ function parseKeyValueArgs(ctx: CommandContext): Record<string, string> {
     if (!k || rest.length === 0) {
       continue;
     }
-    out[k.trim()] = rest.join("=").trim();
+    const key = k.trim();
+    if (allowedKeys && !allowedKeys.has(key)) {
+      continue;
+    }
+    out[key] = rest.join("=").trim();
   }
   return out;
 }
 
-function parseArgString(argString: string): Record<string, string> {
+function parseArgString(argString: string, allowedKeys?: Set<string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const token of argString.split(/\s+/).filter(Boolean)) {
     const [k, ...rest] = token.split("=");
     if (!k || rest.length === 0) {
       continue;
     }
-    out[k.trim()] = rest.join("=").trim();
+    const key = k.trim();
+    if (allowedKeys && !allowedKeys.has(key)) {
+      continue;
+    }
+    out[key] = rest.join("=").trim();
   }
   return out;
 }
@@ -182,6 +193,7 @@ function registerCommandCompat(
   api: any,
   name: string,
   description: string,
+  parameters: any,
   execute: (ctx?: CommandContext) => Promise<{ text: string; data?: unknown }> | { text: string; data?: unknown }
 ): void {
   if (typeof api?.registerCommand !== "function") {
@@ -201,7 +213,7 @@ function registerCommandCompat(
     name,
     command: name,
     description,
-    parameters: Type.Object({}),
+    parameters,
     async execute(...args: unknown[]) {
       return invoke(...args);
     },
@@ -246,6 +258,20 @@ function registerRuntime(api: any): void {
   const client = new BrokerClient({
     baseUrl: brokerUrl,
     timeoutMs: fallback.timeoutMs
+  });
+  const NoArgs = Type.Object({});
+  const RunArgs = Type.Object({
+    runbook_id: Type.String({ minLength: 1 }),
+    namespace: Type.Optional(Type.String()),
+    workload: Type.Optional(Type.String()),
+    log_tail_lines: Type.Optional(Type.String()),
+    selector: Type.Optional(Type.String()),
+    tail_lines: Type.Optional(Type.String()),
+    host: Type.Optional(Type.String()),
+    journal_lines: Type.Optional(Type.String())
+  });
+  const StatusArgs = Type.Object({
+    job_id: Type.String({ minLength: 1 })
   });
 
   api.registerTool({
@@ -302,6 +328,7 @@ function registerRuntime(api: any): void {
     api,
     "teleclaw-ping",
     "Ping TeleClaw plugin connectivity",
+    NoArgs,
     async () => {
       console.error("[teleclaw] command returning to chat: teleclaw-ping");
       return { text: "pong from teleclaw" };
@@ -312,6 +339,7 @@ function registerRuntime(api: any): void {
     api,
     "teleclaw-runbooks",
     "List allowlisted TeleClaw runbooks",
+    NoArgs,
     async () => {
       const out = await listRunbooksTool(client);
       console.error("[teleclaw] command returning to chat: teleclaw-runbooks");
@@ -323,17 +351,30 @@ function registerRuntime(api: any): void {
     api,
     "teleclaw-run",
     "Run a TeleClaw runbook. Example: /teleclaw-run runbook_id=k8s.release_diagnose namespace=mock-app workload=mock-web log_tail_lines=100",
+    RunArgs,
     async (ctx?: CommandContext) => {
       console.error(
         "[teleclaw] command invoked: teleclaw-run",
         ctx?.commandBody ?? ctx?.raw ?? ctx?.input ?? ""
       );
 
-      let kv = parseKeyValueArgs(ctx ?? {});
+      const allowedRunKeys = new Set([
+        "runbook_id",
+        "runbook",
+        "id",
+        "namespace",
+        "workload",
+        "log_tail_lines",
+        "selector",
+        "tail_lines",
+        "host",
+        "journal_lines"
+      ]);
+      let kv = parseKeyValueArgs(ctx ?? {}, allowedRunKeys);
       if (ctx) {
         const tail = extractTailFromContext(ctx, "teleclaw-run");
         if (tail !== null) {
-          kv = { ...kv, ...parseArgString(tail) };
+          kv = { ...kv, ...parseArgString(tail, allowedRunKeys) };
         }
       }
 
@@ -368,8 +409,9 @@ function registerRuntime(api: any): void {
     api,
     "teleclaw-status",
     "Get TeleClaw job status. Example: /teleclaw-status job_id=job-abc123",
+    StatusArgs,
     async (ctx?: CommandContext) => {
-      const kv = parseKeyValueArgs(ctx ?? {});
+      const kv = parseKeyValueArgs(ctx ?? {}, new Set(["job_id", "id"]));
       const jobId = kv.job_id ?? kv.id;
 
       if (!jobId) {
