@@ -76,6 +76,10 @@ function coerceCommandContext(args: unknown[]): CommandContext {
     }
     if (obj.params && typeof obj.params === "object" && !Array.isArray(obj.params)) {
       ctx.params = obj.params as Record<string, unknown>;
+      const nestedBody = (ctx.params as Record<string, unknown>)["commandBody"];
+      if (typeof nestedBody === "string") {
+        ctx.commandBody = nestedBody;
+      }
     }
     if (!ctx.params && !Array.isArray(obj) && typeof obj === "object") {
       ctx.params = obj;
@@ -143,6 +147,34 @@ function extractCommandTail(commandBody: string, commandName: string): string | 
   if (body.startsWith(`${barePrefix} `)) {
     return body.slice(barePrefix.length).trim();
   }
+  return null;
+}
+
+function extractTailFromContext(ctx: CommandContext, commandName: string): string | null {
+  const candidates = [ctx.commandBody, ctx.raw, ctx.input];
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") {
+      continue;
+    }
+    const tail = extractCommandTail(candidate, commandName);
+    if (tail !== null) {
+      return tail;
+    }
+  }
+
+  if (Array.isArray(ctx.argv) && ctx.argv.length > 0) {
+    const tail = extractCommandTail(ctx.argv.join(" "), commandName);
+    if (tail !== null) {
+      return tail;
+    }
+  }
+  if (Array.isArray(ctx.args) && ctx.args.length > 0) {
+    const tail = extractCommandTail(ctx.args.join(" "), commandName);
+    if (tail !== null) {
+      return tail;
+    }
+  }
+
   return null;
 }
 
@@ -270,7 +302,10 @@ function registerRuntime(api: any): void {
     api,
     "teleclaw-ping",
     "Ping TeleClaw plugin connectivity",
-    async () => ({ text: "pong from teleclaw" })
+    async () => {
+      console.error("[teleclaw] command returning to chat: teleclaw-ping");
+      return { text: "pong from teleclaw" };
+    }
   );
 
   registerCommandCompat(
@@ -279,6 +314,7 @@ function registerRuntime(api: any): void {
     "List allowlisted TeleClaw runbooks",
     async () => {
       const out = await listRunbooksTool(client);
+      console.error("[teleclaw] command returning to chat: teleclaw-runbooks");
       return { text: `${out.summary}\n\n${formatJson(out.data)}`, data: out.data };
     }
   );
@@ -294,12 +330,11 @@ function registerRuntime(api: any): void {
       );
 
       let kv = parseKeyValueArgs(ctx ?? {});
-      if (ctx?.commandBody) {
-        const tail = extractCommandTail(ctx.commandBody, "teleclaw-run");
-        if (tail === null) {
-          return { text: "Command body mismatch. Expected /teleclaw-run <args...>" };
+      if (ctx) {
+        const tail = extractTailFromContext(ctx, "teleclaw-run");
+        if (tail !== null) {
+          kv = { ...kv, ...parseArgString(tail) };
         }
-        kv = { ...kv, ...parseArgString(tail) };
       }
 
       console.error("[teleclaw] parsed args", JSON.stringify(kv));
