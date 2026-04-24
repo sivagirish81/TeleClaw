@@ -4,6 +4,8 @@ import { listRunbooksTool } from "./tools/listRunbooks.js";
 import { runRunbookTool } from "./tools/runRunbook.js";
 import { loadConfig } from "./util/config.js";
 
+console.error("[teleclaw] module evaluated");
+
 export type ToolResponse = {
   summary: string;
   data: unknown;
@@ -26,6 +28,10 @@ function getClient(ctx: any) {
 }
 
 export function register(api: any): void {
+  console.error("[teleclaw] register called", {
+    hasRegisterTool: typeof api?.registerTool === "function"
+  });
+
   api.registerTool({
     name: "teleclaw_list_runbooks",
     description: "List allowlisted TeleClaw runbooks from the broker",
@@ -36,6 +42,7 @@ export function register(api: any): void {
       return toToolResult(await listRunbooksTool(client));
     }
   });
+  console.error("[teleclaw] registered tool teleclaw_list_runbooks");
 
   api.registerTool({
     name: "teleclaw_run_runbook",
@@ -55,6 +62,7 @@ export function register(api: any): void {
       return toToolResult(await runRunbookTool(client, input));
     }
   });
+  console.error("[teleclaw] registered tool teleclaw_run_runbook");
 
   api.registerTool({
     name: "teleclaw_get_runbook_status",
@@ -73,6 +81,7 @@ export function register(api: any): void {
       return toToolResult(await getRunbookStatusTool(client, input));
     }
   });
+  console.error("[teleclaw] registered tool teleclaw_get_runbook_status");
 }
 
 export const activate = register;
