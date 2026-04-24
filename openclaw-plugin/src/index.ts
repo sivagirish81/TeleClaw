@@ -413,7 +413,31 @@ function registerRuntime(api: any): void {
       }),
       async execute(...args: unknown[]) {
         const params = normalizeCommandParams(args);
-        const runbookId = typeof params.runbook_id === "string" ? params.runbook_id : "";
+        const allowedRunKeys = new Set([
+          "runbook_id",
+          "runbook",
+          "id",
+          "namespace",
+          "workload",
+          "log_tail_lines",
+          "selector",
+          "tail_lines",
+          "host",
+          "journal_lines"
+        ]);
+        const ctx = coerceCommandContext(args);
+        let kv = parseKeyValueArgs(ctx, allowedRunKeys);
+        const tail = extractTailFromContext(ctx, [commandName]);
+        if (tail) {
+          kv = { ...kv, ...parseArgString(tail, allowedRunKeys) };
+        }
+
+        // Prefer explicit parsed args from command body/context, fallback to structured params.
+        const runbookId =
+          kv.runbook_id ??
+          kv.runbook ??
+          kv.id ??
+          (typeof params.runbook_id === "string" ? params.runbook_id : "");
         if (!runbookId) {
           return toCommandResult({
             text:
@@ -421,15 +445,19 @@ function registerRuntime(api: any): void {
           });
         }
 
+        delete kv.runbook_id;
+        delete kv.runbook;
+        delete kv.id;
+
         const input = Object.fromEntries(
           Object.entries({
-            namespace: params.namespace,
-            workload: params.workload,
-            log_tail_lines: params.log_tail_lines,
-            selector: params.selector,
-            tail_lines: params.tail_lines,
-            host: params.host,
-            journal_lines: params.journal_lines
+            namespace: kv.namespace ?? params.namespace,
+            workload: kv.workload ?? params.workload,
+            log_tail_lines: kv.log_tail_lines ?? params.log_tail_lines,
+            selector: kv.selector ?? params.selector,
+            tail_lines: kv.tail_lines ?? params.tail_lines,
+            host: kv.host ?? params.host,
+            journal_lines: kv.journal_lines ?? params.journal_lines
           }).filter(([, value]) => value != null && String(value).trim() !== "")
         ) as Record<string, string>;
 
