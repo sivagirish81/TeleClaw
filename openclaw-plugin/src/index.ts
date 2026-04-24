@@ -216,6 +216,7 @@ function registerCommandCompat(
       name,
       command: name,
       description,
+      parameters: Type.Object({}),
       async execute(...args: unknown[]) {
         return invoke(...args);
       },
@@ -227,26 +228,11 @@ function registerCommandCompat(
       }
     };
 
-    const attempts: Array<() => void> = [
-      () => api.registerCommand(name, description, (...args: unknown[]) => invoke(...args)),
-      () => api.registerCommand(name, (...args: unknown[]) => invoke(...args)),
-      () => api.registerCommand(commandDef),
-      () => api.registerCommand(name, commandDef)
-    ];
-
-    let registered = false;
-    for (const attempt of attempts) {
-      try {
-        attempt();
-        console.error(`[teleclaw] command registered: ${name}`);
-        registered = true;
-        break;
-      } catch (error) {
-        console.error(`[teleclaw] command registration attempt failed for ${name}`, error);
-      }
-    }
-
-    if (!registered) {
+    try {
+      api.registerCommand(commandDef);
+      console.error(`[teleclaw] command registered: ${name}`);
+    } catch (error) {
+      console.error(`[teleclaw] command registration failed for ${name}`, error);
       console.error(`[teleclaw] failed to register command ${name}`);
     }
   }
