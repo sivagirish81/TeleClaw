@@ -2,11 +2,11 @@
 
 ## Plugin Contract
 
-The plugin exports `createTeleClawPlugin()` and exposes:
+The plugin exposes:
 
-- `list_runbooks`
-- `run_runbook`
-- `get_runbook_status`
+- `teleclaw_list_runbooks`
+- `teleclaw_run_runbook`
+- `teleclaw_get_runbook_status`
 
 Each tool returns:
 
@@ -28,6 +28,6 @@ npm run build
 
 ## Recommended Tooling Pattern
 
-- Use `list_runbooks` for discovery.
-- Use `run_runbook` with explicit `runbook_id` and typed `input` map.
-- Poll `get_runbook_status` for execution state and summarized findings.
+- Use `teleclaw_list_runbooks` for discovery.
+- Use `teleclaw_run_runbook` with explicit `runbook_id` and typed `input` map.
+- Poll `teleclaw_get_runbook_status` for execution state and summarized findings.
