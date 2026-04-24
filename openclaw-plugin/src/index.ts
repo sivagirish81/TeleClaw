@@ -18,6 +18,8 @@ export type TeleClawPlugin = {
   };
 };
 
+type ExecuteArgs = [unknown] | [string, unknown];
+
 export function createTeleClawPlugin(): TeleClawPlugin {
   const config = loadConfig();
   const client = new BrokerClient({ baseUrl: config.brokerUrl, timeoutMs: config.timeoutMs });
@@ -32,64 +34,77 @@ export function createTeleClawPlugin(): TeleClawPlugin {
   };
 }
 
+function normalizeToolInput(args: ExecuteArgs): unknown {
+  if (args.length === 1) {
+    return args[0];
+  }
+  return args[1];
+}
+
+function toToolResult(out: ToolResponse) {
+  return {
+    content: [{ type: "text", text: out.summary }],
+    structuredContent: out.data
+  };
+}
+
 // Native OpenClaw plugin runtime entrypoint.
 // OpenClaw expects `register(api)` (or legacy `activate(api)`) exports.
 export function register(api: any): void {
   const plugin = createTeleClawPlugin();
 
-  api.registerTool({
-    name: "list_runbooks",
-    description: "List allowlisted TeleClaw runbooks from the broker",
-    parameters: { type: "object", additionalProperties: false, properties: {} },
-    execute: async () => {
-      const out = await plugin.tools.list_runbooks();
-      return {
-        content: [{ type: "text", text: out.summary }],
-        structuredContent: out.data
-      };
-    }
-  });
-
-  api.registerTool({
-    name: "run_runbook",
-    description: "Execute an allowlisted TeleClaw runbook by ID with typed inputs",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["runbook_id"],
-      properties: {
-        runbook_id: { type: "string", minLength: 1 },
-        input: { type: "object", additionalProperties: { type: "string" } }
+  const registerList = (name: string) =>
+    api.registerTool({
+      name,
+      description: "List allowlisted TeleClaw runbooks from the broker",
+      parameters: { type: "object", additionalProperties: false, properties: {} },
+      execute: async (...args: ExecuteArgs) => {
+        const _input = normalizeToolInput(args);
+        void _input;
+        return toToolResult(await plugin.tools.list_runbooks());
       }
-    },
-    execute: async (_id: string, input: unknown) => {
-      const out = await plugin.tools.run_runbook(input);
-      return {
-        content: [{ type: "text", text: out.summary }],
-        structuredContent: out.data
-      };
-    }
-  });
+    });
 
-  api.registerTool({
-    name: "get_runbook_status",
-    description: "Fetch runbook job status from the TeleClaw broker",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["job_id"],
-      properties: {
-        job_id: { type: "string", minLength: 1 }
-      }
-    },
-    execute: async (_id: string, input: unknown) => {
-      const out = await plugin.tools.get_runbook_status(input);
-      return {
-        content: [{ type: "text", text: out.summary }],
-        structuredContent: out.data
-      };
-    }
-  });
+  const registerRun = (name: string) =>
+    api.registerTool({
+      name,
+      description: "Execute an allowlisted TeleClaw runbook by ID with typed inputs",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["runbook_id"],
+        properties: {
+          runbook_id: { type: "string", minLength: 1 },
+          input: { type: "object", additionalProperties: { type: "string" } }
+        }
+      },
+      execute: async (...args: ExecuteArgs) => toToolResult(await plugin.tools.run_runbook(normalizeToolInput(args)))
+    });
+
+  const registerStatus = (name: string) =>
+    api.registerTool({
+      name,
+      description: "Fetch runbook job status from the TeleClaw broker",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["job_id"],
+        properties: {
+          job_id: { type: "string", minLength: 1 }
+        }
+      },
+      execute: async (...args: ExecuteArgs) => toToolResult(await plugin.tools.get_runbook_status(normalizeToolInput(args)))
+    });
+
+  // Canonical, low-collision names.
+  registerList("teleclaw_list_runbooks");
+  registerRun("teleclaw_run_runbook");
+  registerStatus("teleclaw_get_runbook_status");
+
+  // Backward-compatible aliases.
+  registerList("list_runbooks");
+  registerRun("run_runbook");
+  registerStatus("get_runbook_status");
 }
 
 // Legacy alias still recognized by OpenClaw loader.
