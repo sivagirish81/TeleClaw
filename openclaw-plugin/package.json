@@ -29,8 +29,8 @@
   },
   "license": "MIT",
   "dependencies": {
-    "zod": "^3.23.8",
-    "@sinclair/typebox": "^0.33.22"
+    "@sinclair/typebox": "^0.33.22",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
