@@ -1,115 +1,79 @@
+import { Type } from "@sinclair/typebox";
+import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { BrokerClient } from "./client/brokerClient.js";
 import { getRunbookStatusTool } from "./tools/getRunbookStatus.js";
 import { listRunbooksTool } from "./tools/listRunbooks.js";
 import { runRunbookTool } from "./tools/runRunbook.js";
 import { loadConfig } from "./util/config.js";
 
-console.error("[teleclaw] module evaluated");
-
-export type ToolResponse = {
-  summary: string;
-  data: unknown;
-};
-
-function toToolResult(out: ToolResponse) {
+function toToolResult(out: { summary: string; data: unknown }) {
   return {
     content: [{ type: "text", text: out.summary }],
     structuredContent: out.data
   };
 }
 
-function getClient(ctx: any) {
-  const fallback = loadConfig();
-  const brokerUrl = ctx?.pluginConfig?.brokerUrl || fallback.brokerUrl;
+function makeClient() {
+  const config = loadConfig();
   return new BrokerClient({
-    baseUrl: brokerUrl,
-    timeoutMs: fallback.timeoutMs
+    baseUrl: config.brokerUrl,
+    timeoutMs: config.timeoutMs
   });
 }
 
-export function register(api: any): void {
-  console.error("[teleclaw] register called", {
-    hasRegisterTool: typeof api?.registerTool === "function",
-    apiKeys: Object.keys(api || {}).sort()
-  });
-
-  const r1 = api.registerTool({
-    name: "teleclaw_list_runbooks",
-    description: "List allowlisted TeleClaw runbooks from the broker",
-    parameters: { type: "object", additionalProperties: false, properties: {} },
-    execute: async (_input: unknown, ctx: any) => {
-      console.error("[teleclaw] tool invoked: teleclaw_list_runbooks");
-      const client = getClient(ctx);
-      return toToolResult(await listRunbooksTool(client));
-    }
-  });
-  console.error("[teleclaw] registered tool teleclaw_list_runbooks ->", r1);
-
-  const r2 = api.registerTool({
-    name: "teleclaw_run_runbook",
-    description: "Execute an allowlisted TeleClaw runbook by ID with typed inputs",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["runbook_id"],
-      properties: {
-        runbook_id: { type: "string", minLength: 1 },
-        input: { type: "object", additionalProperties: { type: "string" } }
-      }
-    },
-    execute: async (input: unknown, ctx: any) => {
-      console.error("[teleclaw] tool invoked: teleclaw_run_runbook", JSON.stringify(input));
-      const client = getClient(ctx);
-      return toToolResult(await runRunbookTool(client, input));
-    }
-  });
-  console.error("[teleclaw] registered tool teleclaw_run_runbook ->", r2);
-
-  const r3 = api.registerTool({
-    name: "teleclaw_get_runbook_status",
-    description: "Fetch runbook job status from the TeleClaw broker",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["job_id"],
-      properties: {
-        job_id: { type: "string", minLength: 1 }
-      }
-    },
-    execute: async (input: unknown, ctx: any) => {
-      console.error("[teleclaw] tool invoked: teleclaw_get_runbook_status", JSON.stringify(input));
-      const client = getClient(ctx);
-      return toToolResult(await getRunbookStatusTool(client, input));
-    }
-  });
-  console.error("[teleclaw] registered tool teleclaw_get_runbook_status ->", r3);
-
-  api.registerTool({
-    name: "teleclaw_ping",
-    description: "Debug ping tool",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {}
-    },
-    execute: async () => {
-      console.error("[teleclaw] tool invoked: teleclaw_ping");
-      return {
-        content: [{ type: "text", text: "pong from teleclaw" }]
-      };
-    }
-  });
-  console.error("[teleclaw] registered tool teleclaw_ping");
-}
-
-export const activate = register;
-
-export default {
+export default definePluginEntry({
   id: "@teleclaw/openclaw-plugin",
   name: "TeleClaw OpenClaw Plugin",
-  register
-};
+  description: "Run allowlisted TeleClaw runbooks through the local broker",
+  register(api: any) {
+    api.registerTool({
+      name: "teleclaw_list_runbooks",
+      description: "List allowlisted TeleClaw runbooks from the broker",
+      parameters: Type.Object({}),
+      async execute(_id: string, _params: unknown) {
+        console.error("[teleclaw] tool invoked: teleclaw_list_runbooks");
+        const client = makeClient();
+        return toToolResult(await listRunbooksTool(client));
+      }
+    });
 
-if (process.argv[1] && process.argv[1].endsWith("index.ts")) {
-  console.log("TeleClaw plugin loaded. Exposed tools: teleclaw_list_runbooks, teleclaw_run_runbook, teleclaw_get_runbook_status");
-}
+    api.registerTool({
+      name: "teleclaw_run_runbook",
+      description: "Execute an allowlisted TeleClaw runbook",
+      parameters: Type.Object({
+        runbook_id: Type.String({ minLength: 1 }),
+        input: Type.Optional(Type.Record(Type.String(), Type.String()))
+      }),
+      async execute(_id: string, params: unknown) {
+        console.error("[teleclaw] tool invoked: teleclaw_run_runbook", JSON.stringify(params));
+        const client = makeClient();
+        return toToolResult(await runRunbookTool(client, params));
+      }
+    });
+
+    api.registerTool({
+      name: "teleclaw_get_runbook_status",
+      description: "Fetch TeleClaw runbook status",
+      parameters: Type.Object({
+        job_id: Type.String({ minLength: 1 })
+      }),
+      async execute(_id: string, params: unknown) {
+        console.error("[teleclaw] tool invoked: teleclaw_get_runbook_status", JSON.stringify(params));
+        const client = makeClient();
+        return toToolResult(await getRunbookStatusTool(client, params));
+      }
+    });
+
+    api.registerTool({
+      name: "teleclaw_ping",
+      description: "Debug ping tool",
+      parameters: Type.Object({}),
+      async execute(_id: string, _params: unknown) {
+        console.error("[teleclaw] tool invoked: teleclaw_ping");
+        return {
+          content: [{ type: "text", text: "pong from teleclaw" }]
+        };
+      }
+    });
+  }
+});
