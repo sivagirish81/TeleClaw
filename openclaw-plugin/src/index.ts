@@ -12,7 +12,16 @@ type ToolResponse = {
   data: unknown;
 };
 
-type CommandResponse = {
+type CommandContext = {
+  argv?: string[];
+  args?: string[];
+  input?: string;
+  raw?: string;
+  commandBody?: string;
+  params?: Record<string, unknown>;
+};
+
+type CommandResult = {
   text: string;
   data?: unknown;
 };
@@ -24,7 +33,7 @@ function toToolResult(out: ToolResponse) {
   };
 }
 
-function toCommandResult(out: CommandResponse) {
+function toCommandResult(out: CommandResult) {
   return {
     text: out.text,
     message: out.text,
@@ -33,20 +42,213 @@ function toCommandResult(out: CommandResponse) {
   };
 }
 
-function formatJSON(value: unknown): string {
-  return JSON.stringify(value, null, 2);
+function formatJson(data: unknown): string {
+  return JSON.stringify(data, null, 2);
 }
 
-function ensureRegistrationAPI(api: any): asserts api is {
-  registerTool: (tool: any) => void;
-  registerCommand: (...args: any[]) => void;
-  pluginConfig?: { brokerUrl?: string };
-} {
-  if (typeof api?.registerTool !== "function") {
-    throw new Error("[teleclaw] registerTool is unavailable in this OpenClaw runtime");
+function coerceCommandContext(args: unknown[]): CommandContext {
+  const ctx: CommandContext = {};
+
+  for (const arg of args) {
+    if (!arg) {
+      continue;
+    }
+
+    if (typeof arg === "string") {
+      ctx.raw = [ctx.raw, arg].filter(Boolean).join(" ");
+      continue;
+    }
+
+    if (typeof arg !== "object") {
+      continue;
+    }
+
+    const obj = arg as Record<string, unknown>;
+
+    if (Array.isArray(obj.argv)) {
+      ctx.argv = obj.argv.filter((x): x is string => typeof x === "string");
+    }
+    if (Array.isArray(obj.args)) {
+      ctx.args = obj.args.filter((x): x is string => typeof x === "string");
+    }
+    if (typeof obj.input === "string") {
+      ctx.input = obj.input;
+    }
+    if (typeof obj.raw === "string") {
+      ctx.raw = obj.raw;
+    }
+    if (typeof obj.commandBody === "string") {
+      ctx.commandBody = obj.commandBody;
+    }
+
+    if (obj.params && typeof obj.params === "object" && !Array.isArray(obj.params)) {
+      ctx.params = obj.params as Record<string, unknown>;
+      const nestedBody = (ctx.params as Record<string, unknown>).commandBody;
+      if (typeof nestedBody === "string") {
+        ctx.commandBody = nestedBody;
+      }
+    }
+
+    if (!ctx.params) {
+      ctx.params = obj;
+    }
   }
+
+  return ctx;
+}
+
+function parseArgString(argString: string, allowedKeys?: Set<string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const token of argString.split(/\s+/).filter(Boolean)) {
+    const [k, ...rest] = token.split("=");
+    if (!k || rest.length === 0) {
+      continue;
+    }
+    const key = k.trim();
+    if (allowedKeys && !allowedKeys.has(key)) {
+      continue;
+    }
+    out[key] = rest.join("=").trim();
+  }
+  return out;
+}
+
+function parseKeyValueArgs(ctx: CommandContext, allowedKeys?: Set<string>): Record<string, string> {
+  const out: Record<string, string> = {};
+
+  if (ctx.params) {
+    for (const [key, value] of Object.entries(ctx.params)) {
+      if (value == null) {
+        continue;
+      }
+      if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+        continue;
+      }
+      if (allowedKeys && !allowedKeys.has(key)) {
+        continue;
+      }
+      out[key] = String(value);
+    }
+  }
+
+  const tokenSources = [
+    ...(Array.isArray(ctx.argv) ? ctx.argv : []),
+    ...(Array.isArray(ctx.args) ? ctx.args : []),
+    ...(typeof ctx.input === "string" ? ctx.input.split(/\s+/) : []),
+    ...(typeof ctx.raw === "string" ? ctx.raw.split(/\s+/) : [])
+  ].filter(Boolean);
+
+  for (const token of tokenSources) {
+    const [k, ...rest] = token.split("=");
+    if (!k || rest.length === 0) {
+      continue;
+    }
+    const key = k.trim();
+    if (allowedKeys && !allowedKeys.has(key)) {
+      continue;
+    }
+    out[key] = rest.join("=").trim();
+  }
+
+  return out;
+}
+
+function extractCommandTail(commandBody: string, commandName: string): string | null {
+  const body = commandBody.trim();
+  const slashPrefix = `/${commandName}`;
+  const barePrefix = commandName;
+
+  if (body === slashPrefix || body === barePrefix) {
+    return "";
+  }
+  if (body.startsWith(`${slashPrefix} `)) {
+    return body.slice(slashPrefix.length).trim();
+  }
+  if (body.startsWith(`${barePrefix} `)) {
+    return body.slice(barePrefix.length).trim();
+  }
+  return null;
+}
+
+function extractTailFromContext(ctx: CommandContext, commandNames: string[]): string {
+  const candidates = [ctx.commandBody, ctx.raw, ctx.input];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") {
+      continue;
+    }
+    for (const name of commandNames) {
+      const tail = extractCommandTail(candidate, name);
+      if (tail !== null) {
+        return tail;
+      }
+    }
+  }
+
+  return "";
+}
+
+function registerCommandCompat(
+  api: any,
+  names: string[],
+  description: string,
+  execute: (ctx: CommandContext) => Promise<CommandResult>
+): void {
   if (typeof api?.registerCommand !== "function") {
-    throw new Error("[teleclaw] registerCommand is unavailable in this OpenClaw runtime");
+    console.error(`[teleclaw] registerCommand unavailable; skipping command ${names.join(",")}`);
+    return;
+  }
+
+  const primary = names[0];
+  if (!primary) {
+    return;
+  }
+
+  const invoke = async (...args: unknown[]) => {
+    const ctx = coerceCommandContext(args);
+    console.error(`[teleclaw] command invoked: ${primary}`, JSON.stringify(ctx));
+    return toCommandResult(await execute(ctx));
+  };
+
+  for (const name of names) {
+    const commandDef = {
+      id: name,
+      name,
+      command: name,
+      description,
+      parameters: Type.Object({}),
+      async execute(...args: unknown[]) {
+        return invoke(...args);
+      },
+      async run(...args: unknown[]) {
+        return invoke(...args);
+      },
+      async handler(...args: unknown[]) {
+        return invoke(...args);
+      }
+    };
+
+    try {
+      api.registerCommand(commandDef);
+      console.error(`[teleclaw] command registered: ${name}`);
+    } catch (error) {
+      console.error(`[teleclaw] command registration failed for ${name}`, error);
+      console.error(`[teleclaw] failed to register command ${name}`);
+    }
+  }
+}
+
+function registerToolCompat(api: any, toolDef: any): void {
+  if (typeof api?.registerTool !== "function") {
+    console.error(`[teleclaw] registerTool unavailable; skipping ${toolDef?.name ?? "unknown"}`);
+    return;
+  }
+
+  try {
+    api.registerTool(toolDef);
+    console.error(`[teleclaw] tool registered: ${toolDef.name}`);
+  } catch (error) {
+    console.error(`[teleclaw] failed to register tool ${toolDef.name}`, error);
   }
 }
 
@@ -57,49 +259,17 @@ function registerRuntime(api: any): void {
   }
   (globalThis as any).__teleclawRuntimeRegistered = true;
 
-  ensureRegistrationAPI(api);
-
   const fallback = loadConfig();
-  const brokerUrl = api.pluginConfig?.brokerUrl ?? fallback.brokerUrl;
+  const brokerUrl = api?.pluginConfig?.brokerUrl ?? fallback.brokerUrl;
   const client = new BrokerClient({
     baseUrl: brokerUrl,
     timeoutMs: fallback.timeoutMs
   });
+  let lastJobId: string | undefined;
 
-  let lastJobID: string | undefined;
-  const registeredTools: string[] = [];
-  const registeredCommands: string[] = [];
+  console.error("[teleclaw] runtime register called", JSON.stringify({ brokerUrl }));
 
-  const registerTool = (toolDef: any) => {
-    try {
-      api.registerTool(toolDef);
-      registeredTools.push(toolDef.name);
-    } catch (err) {
-      console.error(`[teleclaw] registerTool failed for ${toolDef.name}`, err);
-    }
-  };
-
-  const registerCommand = (commandDef: any) => {
-    try {
-      api.registerCommand(commandDef);
-      registeredCommands.push(commandDef.name);
-      return;
-    } catch (err) {
-      console.error(`[teleclaw] registerCommand(object) failed for ${commandDef.name}`, err);
-    }
-
-    try {
-      api.registerCommand(commandDef.name, commandDef);
-      registeredCommands.push(commandDef.name);
-      return;
-    } catch (err) {
-      console.error(`[teleclaw] registerCommand(name, object) failed for ${commandDef.name}`, err);
-    }
-
-    console.error(`[teleclaw] unable to register command ${commandDef.name}`);
-  };
-
-  registerTool({
+  registerToolCompat(api, {
     name: "teleclaw_ping",
     description: "Debug ping tool",
     parameters: Type.Object({}),
@@ -109,7 +279,7 @@ function registerRuntime(api: any): void {
     }
   });
 
-  registerTool({
+  registerToolCompat(api, {
     name: "teleclaw_list_runbooks",
     description: "List allowlisted TeleClaw runbooks from the broker",
     parameters: Type.Object({}),
@@ -119,7 +289,7 @@ function registerRuntime(api: any): void {
     }
   });
 
-  registerTool({
+  registerToolCompat(api, {
     name: "teleclaw_run_runbook",
     description: "Execute an allowlisted TeleClaw runbook by ID with typed inputs",
     parameters: Type.Object({
@@ -128,16 +298,11 @@ function registerRuntime(api: any): void {
     }),
     async execute(_id: string, params: { runbook_id: string; input?: Record<string, string> }) {
       console.error("[teleclaw] tool invoked: teleclaw_run_runbook", JSON.stringify(params));
-      const out = await runRunbookTool(client, params);
-      const maybeJobID = (out.data as Record<string, unknown> | undefined)?.job_id;
-      if (typeof maybeJobID === "string" && maybeJobID.trim() !== "") {
-        lastJobID = maybeJobID;
-      }
-      return toToolResult(out);
+      return toToolResult(await runRunbookTool(client, params));
     }
   });
 
-  registerTool({
+  registerToolCompat(api, {
     name: "teleclaw_get_runbook_status",
     description: "Fetch runbook job status from the TeleClaw broker",
     parameters: Type.Object({
@@ -149,8 +314,8 @@ function registerRuntime(api: any): void {
     }
   });
 
-  // Compatibility aliases so tool calls from older prompts/config still work.
-  registerTool({
+  // Legacy aliases for model routing compatibility.
+  registerToolCompat(api, {
     name: "list_runbooks",
     description: "Alias for teleclaw_list_runbooks",
     parameters: Type.Object({}),
@@ -160,7 +325,7 @@ function registerRuntime(api: any): void {
     }
   });
 
-  registerTool({
+  registerToolCompat(api, {
     name: "run_runbook",
     description: "Alias for teleclaw_run_runbook",
     parameters: Type.Object({
@@ -169,16 +334,11 @@ function registerRuntime(api: any): void {
     }),
     async execute(_id: string, params: { runbook_id: string; input?: Record<string, string> }) {
       console.error("[teleclaw] tool invoked: run_runbook", JSON.stringify(params));
-      const out = await runRunbookTool(client, params);
-      const maybeJobID = (out.data as Record<string, unknown> | undefined)?.job_id;
-      if (typeof maybeJobID === "string" && maybeJobID.trim() !== "") {
-        lastJobID = maybeJobID;
-      }
-      return toToolResult(out);
+      return toToolResult(await runRunbookTool(client, params));
     }
   });
 
-  registerTool({
+  registerToolCompat(api, {
     name: "get_runbook_status",
     description: "Alias for teleclaw_get_runbook_status",
     parameters: Type.Object({
@@ -190,53 +350,28 @@ function registerRuntime(api: any): void {
     }
   });
 
-  const registerCommandPair = (primary: string, alias: string, build: () => any) => {
-    const a = build();
-    a.id = primary;
-    a.name = primary;
-    a.command = primary;
-    registerCommand(a);
+  registerCommandCompat(
+    api,
+    ["teleclaw-ping", "teleclaw_ping"],
+    "Ping TeleClaw plugin connectivity",
+    async () => ({ text: "pong from teleclaw" })
+  );
 
-    const b = build();
-    b.id = alias;
-    b.name = alias;
-    b.command = alias;
-    registerCommand(b);
-  };
-
-  registerCommandPair("teleclaw-ping", "teleclaw_ping", () => ({
-    id: "teleclaw-ping",
-    name: "teleclaw-ping",
-    command: "teleclaw-ping",
-    description: "Ping TeleClaw plugin connectivity",
-    parameters: Type.Object({}),
-    async execute(_params: {}) {
-      console.error("[teleclaw] command invoked: teleclaw-ping");
-      return toCommandResult({ text: "pong from teleclaw" });
-    }
-  }));
-
-  registerCommandPair("teleclaw-runbooks", "teleclaw_runbooks", () => ({
-    id: "teleclaw-runbooks",
-    name: "teleclaw-runbooks",
-    command: "teleclaw-runbooks",
-    description: "List allowlisted TeleClaw runbooks",
-    parameters: Type.Object({}),
-    async execute(_params: {}) {
-      console.error("[teleclaw] command invoked: teleclaw-runbooks");
+  registerCommandCompat(
+    api,
+    ["teleclaw-runbooks", "teleclaw_runbooks"],
+    "List allowlisted TeleClaw runbooks",
+    async () => {
       const out = await listRunbooksTool(client);
-      return toCommandResult({ text: `${out.summary}\n\n${formatJSON(out.data)}`, data: out.data });
+      return { text: `${out.summary}\n\n${formatJson(out.data)}`, data: out.data };
     }
-  }));
+  );
 
-  registerCommandPair("teleclaw-run", "teleclaw_run", () => ({
-    id: "teleclaw-run",
-    name: "teleclaw-run",
-    command: "teleclaw-run",
-    description: "Run the Kubernetes diagnose flow for mock-app/mock-web",
-    parameters: Type.Object({}),
-    async execute(_params: {}) {
-      console.error("[teleclaw] command invoked: teleclaw-run");
+  registerCommandCompat(
+    api,
+    ["teleclaw-run", "teleclaw_run", "teleclaw-diagnose", "teleclaw_diagnose"],
+    "Run the TeleClaw Kubernetes demo diagnose flow",
+    async () => {
       const payload = {
         runbook_id: "k8s.release_diagnose",
         input: {
@@ -245,35 +380,38 @@ function registerRuntime(api: any): void {
           log_tail_lines: "100"
         }
       };
+      console.error("[teleclaw] calling broker", JSON.stringify({ brokerUrl, payload }));
       const out = await runRunbookTool(client, payload);
-      const maybeJobID = (out.data as Record<string, unknown> | undefined)?.job_id;
-      if (typeof maybeJobID === "string" && maybeJobID.trim() !== "") {
-        lastJobID = maybeJobID;
+      const maybeJobId = (out.data as Record<string, unknown> | undefined)?.job_id;
+      if (typeof maybeJobId === "string" && maybeJobId.trim() !== "") {
+        lastJobId = maybeJobId;
       }
-      return toCommandResult({ text: `${out.summary}\n\n${formatJSON(out.data)}`, data: out.data });
+      return {
+        text: `${out.summary}\n\n${formatJson(out.data)}`,
+        data: out.data
+      };
     }
-  }));
-
-  registerCommandPair("teleclaw-status", "teleclaw_status", () => ({
-    id: "teleclaw-status",
-    name: "teleclaw-status",
-    command: "teleclaw-status",
-    description: "Get status of the latest TeleClaw run",
-    parameters: Type.Object({}),
-    async execute(_params: {}) {
-      console.error("[teleclaw] command invoked: teleclaw-status");
-      if (!lastJobID) {
-        return toCommandResult({ text: "No run tracked yet. Run /teleclaw-run first." });
-      }
-      const out = await getRunbookStatusTool(client, { job_id: lastJobID });
-      return toCommandResult({ text: `${out.summary}\n\n${formatJSON(out.data)}`, data: out.data });
-    }
-  }));
-
-  console.error(
-    "[teleclaw] runtime registered",
-    JSON.stringify({ brokerUrl, tools: registeredTools, commands: registeredCommands })
   );
+
+  registerCommandCompat(
+    api,
+    ["teleclaw-status", "teleclaw_status"],
+    "Get status for the latest TeleClaw demo run",
+    async () => {
+      if (!lastJobId) {
+        return {
+          text: "No demo run found yet. Run /teleclaw-run first."
+        };
+      }
+      const out = await getRunbookStatusTool(client, { job_id: lastJobId });
+      return {
+        text: `${out.summary}\n\n${formatJson(out.data)}`,
+        data: out.data
+      };
+    }
+  );
+
+  console.error("[teleclaw] tools and commands registered");
 }
 
 export default definePluginEntry({
