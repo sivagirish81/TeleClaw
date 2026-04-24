@@ -4,9 +4,9 @@ TypeScript plugin that exposes TeleClaw tools for OpenClaw.
 
 ## Tools
 
-- `list_runbooks`
-- `run_runbook`
-- `get_runbook_status`
+- `teleclaw_list_runbooks`
+- `teleclaw_run_runbook`
+- `teleclaw_get_runbook_status`
 
 ## Installation (template guidance)
 
@@ -19,7 +19,24 @@ npm run build
 ```
 
 2. Register plugin package in your OpenClaw runtime/plugin config.
-3. Configure broker URL (`TELECLAW_BROKER_URL`) in plugin environment.
+3. Configure broker URL via plugin config (recommended) or `TELECLAW_BROKER_URL`.
+
+Example OpenClaw plugin config:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "@teleclaw/openclaw-plugin": {
+        "enabled": true,
+        "config": {
+          "brokerUrl": "http://127.0.0.1:8080"
+        }
+      }
+    }
+  }
+}
+```
 
 Because OpenClaw deployment patterns differ by team, this template keeps registration generic and focuses on plugin runtime contract.
 
