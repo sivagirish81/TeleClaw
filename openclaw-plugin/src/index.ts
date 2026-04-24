@@ -83,6 +83,23 @@ export function register(api: any): void {
     }
   });
   console.error("[teleclaw] registered tool teleclaw_get_runbook_status ->", r3);
+
+  api.registerTool({
+    name: "teleclaw_ping",
+    description: "Debug ping tool",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {}
+    },
+    execute: async () => {
+      console.error("[teleclaw] tool invoked: teleclaw_ping");
+      return {
+        content: [{ type: "text", text: "pong from teleclaw" }]
+      };
+    }
+  });
+  console.error("[teleclaw] registered tool teleclaw_ping");
 }
 
 export const activate = register;
